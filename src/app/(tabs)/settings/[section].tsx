@@ -2,13 +2,15 @@ import { useState } from 'react';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { EmptyState } from '../../../components/Screen';
-import { settingsPages } from '../../../settings-data';
+import { useSettingsGroups } from '../../../settings-data';
 import { useTheme } from '../../../theme';
 
 export default function SettingsSection() {
   const t = useTheme();
   const { section } = useLocalSearchParams<{ section: string }>();
-  const page = settingsPages.find((p) => p.slug === section);
+  const page = useSettingsGroups()
+    .flatMap((g) => g.pages)
+    .find((p) => p.slug === section);
   // shortcut: toggles live in local state only, reset on leave; persist with Supabase later
   const [toggles, setToggles] = useState(() => page?.rows.map((r) => !!r.toggle) ?? []);
 
@@ -39,12 +41,17 @@ export default function SettingsSection() {
                 accessibilityLabel={r.label}
               />
             ) : (
-              !!r.value && <Text style={{ color: t.muted, fontSize: 15, flexShrink: 1, textAlign: 'right' }}>{r.value}</Text>
+              !!r.value && (
+                <Text style={{ color: t.muted, fontSize: 15, flexShrink: 1, textAlign: 'right' }}>{r.value}</Text>
+              )
             )}
           </View>
         ))}
       </View>
-      {!!page.note && <Text style={{ color: t.muted, fontSize: 13, lineHeight: 19, marginHorizontal: 4 }}>{page.note}</Text>}
+      {page.rows.length === 0 && <EmptyState>Nothing here yet.</EmptyState>}
+      {!!page.note && (
+        <Text style={{ color: t.muted, fontSize: 13, lineHeight: 19, marginHorizontal: 4 }}>{page.note}</Text>
+      )}
     </ScrollView>
   );
 }

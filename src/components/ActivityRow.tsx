@@ -1,29 +1,35 @@
-import { StyleSheet, Text, View } from 'react-native';
-import type { Activity } from '../data';
+import { router } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { categoryIcon } from '../data';
+import { formatWhen, type Entry } from '../format';
 import { signed, useTheme } from '../theme';
 
-export function ActivityRow({ item, divider }: { item: Activity; divider: boolean }) {
+export function ActivityRow({ item, divider }: { item: Entry; divider: boolean }) {
   const t = useTheme();
+  const Glyph = categoryIcon(item.category);
+  const value = item.kind === 'in' ? item.amount : -item.amount;
   return (
-    <View
-      style={[
+    <Pressable
+      onPress={() => router.push(`/entry/${item.id}`)}
+      accessibilityRole="button"
+      accessibilityHint="Opens this entry to edit or delete it"
+      style={({ pressed }) => [
         s.row,
         divider && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.hairline },
+        pressed && { opacity: 0.6 },
       ]}
     >
       <View style={[s.tile, { backgroundColor: t.accent + '1A' }]}>
-        <item.icon size={20} color={t.accent} weight="regular" />
+        <Glyph size={20} color={t.accent} weight="regular" />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[s.title, { color: t.text }]} numberOfLines={1}>
           {item.title}
         </Text>
-        <Text style={{ color: t.muted, fontSize: 13 }}>{item.when}</Text>
+        <Text style={{ color: t.muted, fontSize: 13 }}>{formatWhen(item.occurredAt)}</Text>
       </View>
-      <Text style={[s.amount, { color: item.amount > 0 ? t.accent : t.text }]}>
-        {signed(item.amount)}
-      </Text>
-    </View>
+      <Text style={[s.amount, { color: item.kind === 'in' ? t.accent : t.text }]}>{signed(value)}</Text>
+    </Pressable>
   );
 }
 
