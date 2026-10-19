@@ -1,23 +1,50 @@
-import type { ReactNode } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Alert, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTransactions } from '../store';
 import { useTheme } from '../theme';
 import { Button } from './Controls';
 
+export const screenPadding = { padding: 20, paddingBottom: 48 };
+
 export function Screen({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   const t = useTheme();
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }} edges={['top']}>
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 48 }}>
-        <View style={{ gap: 2, marginBottom: 4 }}>
-          <Text style={{ color: t.text, fontSize: 28, fontWeight: '700', letterSpacing: -0.6 }}>{title}</Text>
-          {subtitle && <Text style={{ color: t.muted, fontSize: 15 }}>{subtitle}</Text>}
-        </View>
+      <ScrollView contentContainerStyle={{ ...screenPadding, gap: 16 }} refreshControl={usePullToRefresh()}>
+        <ScreenHeader title={title} subtitle={subtitle} />
         {children}
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+export function ScreenHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+  const t = useTheme();
+  return (
+    <View style={{ gap: 2, marginBottom: 4 }}>
+      <Text style={{ color: t.text, fontSize: 28, fontWeight: '700', letterSpacing: -0.6 }}>{title}</Text>
+      {subtitle && <Text style={{ color: t.muted, fontSize: 15 }}>{subtitle}</Text>}
+    </View>
+  );
+}
+
+// Refetches without the loading skeleton; on failure the current data stays and an alert explains why.
+export function usePullToRefresh() {
+  const t = useTheme();
+  const { refresh } = useTransactions();
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refresh();
+    } catch (e) {
+      Alert.alert('Couldn’t refresh', (e as Error).message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  return <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={t.accent} colors={[t.accent]} progressBackgroundColor={t.surface} />;
 }
 
 export function EmptyState({ children }: { children: string }) {

@@ -1,6 +1,6 @@
 // Run with: node src/format.check.mts
 import assert from 'node:assert/strict';
-import { buildCsv, escapeHtml, formatWhen, groupByMonth, sumAmounts, type Entry } from './format.ts';
+import { buildCsv, escapeHtml, formatWhen, groupByDay, groupByMonth, onDay, sumAmounts, type Entry } from './format.ts';
 
 const now = new Date(2026, 9, 18, 15, 30);
 const entry = (over: Partial<Entry>): Entry => ({
@@ -61,5 +61,25 @@ assert.equal(lines[4], '');
 
 // escapeHtml
 assert.equal(escapeHtml(`<b>Tom & "Jerry's"</b>`), '&lt;b&gt;Tom &amp; &quot;Jerry&#39;s&quot;&lt;/b&gt;');
+
+// onDay: date from the first, clock time from the second, across a month boundary
+assert.deepEqual(onDay(new Date(2026, 8, 30), new Date(2026, 9, 1, 14, 5, 9)), new Date(2026, 8, 30, 14, 5, 9));
+
+// groupByDay: keeps order, titles relative days, nets in minus out
+const days = groupByDay(
+  [
+    entry({ id: 'a', amount: 1000, occurredAt: new Date(2026, 9, 18, 14) }),
+    entry({ id: 'b', amount: 250.25, kind: 'out', occurredAt: new Date(2026, 9, 18, 9) }),
+    entry({ id: 'c', amount: 40, kind: 'out', occurredAt: new Date(2026, 9, 17, 20) }),
+    entry({ id: 'd', amount: 5, occurredAt: new Date(2026, 9, 13) }),
+    entry({ id: 'e', amount: 7, occurredAt: new Date(2025, 11, 31) }),
+  ],
+  now,
+);
+assert.deepEqual(days.map((d) => d.title), ['Today', 'Yesterday', 'Tue, Oct 13', 'Wed, Dec 31, 2025']);
+assert.deepEqual(days[0].data.map((e) => e.id), ['a', 'b']);
+assert.equal(days[0].net, 749.75);
+assert.equal(days[1].net, -40);
+assert.deepEqual(groupByDay([], now), []);
 
 console.log('format checks passed');

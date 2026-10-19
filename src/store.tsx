@@ -6,7 +6,7 @@ import { supabase } from './lib/supabase';
 export type Category = { id: string; kind: Kind; name: string };
 export type Method = { id: string; name: string };
 export type Resort = { name: string; address: string | null; tin: string | null; contact: string | null; opening_balance: number };
-export type EntryInput = { title: string; amount: number; categoryId: string; methodId: string };
+export type EntryInput = { title: string; amount: number; categoryId: string; methodId: string; occurredAt: Date };
 
 const SELECT = 'id, title, amount, occurred_at, category_id, payment_method_id, categories(name, kind), payment_methods(name)';
 
@@ -47,13 +47,56 @@ const empty: State = { status: 'loading', entries: [], categories: [], methods: 
 
 type Ctx = State & {
   reload: () => void;
+  refresh: () => Promise<void>;
   addEntry: (input: EntryInput) => Promise<void>;
   updateEntry: (id: string, input: EntryInput) => Promise<void>;
   removeEntry: (id: string) => Promise<void>;
 };
 const StoreCtx = createContext<Ctx | null>(null);
 
-const toRow = (i: EntryInput) => ({ title: i.title, amount: i.amount, category_id: i.categoryId, payment_method_id: i.methodId });
+const toRow = (i: EntryInput) => ({
+  title: i.title,
+  amount: i.amount,
+  category_id: i.categoryId,
+  payment_method_id: i.methodId,
+  occurred_at: i.occurredAt.toISOString(),
+});
+
+// Supabase caps each response (1,000 rows by default), so page until an empty page comes back.
+// shortcut: loads every row into memory; move totals to a Postgres view if it reaches tens of thousands of rows
+const PAGE = 1000;
+async function fetchTransactions(): Promise<Row[]> {
+  const rows: Row[] = [];
+  for (;;) {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select(SELECT)
+      .order('occurred_at', { ascending: false })
+      .order('id')
+      .range(rows.length, rows.length + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data.length) return rows;
+    rows.push(...(data as unknown as Row[]));
+  }
+}
+
+async function fetchAll(): Promise<State> {
+  const [entries, cats, methods, resort] = await Promise.all([
+    fetchTransactions(),
+    supabase.from('categories').select('id, kind, name').order('sort'),
+    supabase.from('payment_methods').select('id, name').order('sort'),
+    supabase.from('resort').select('name, address, tin, contact, opening_balance').maybeSingle(),
+  ]);
+  const error = cats.error ?? methods.error ?? resort.error;
+  if (error) throw new Error(error.message);
+  return {
+    status: 'ready',
+    entries: entries.map(toEntry),
+    categories: cats.data as Category[],
+    methods: methods.data as Method[],
+    resort: resort.data && { ...resort.data, opening_balance: Number(resort.data.opening_balance) },
+  };
+}
 
 export function TransactionsProvider({ children }: { children: ReactNode }) {
   const session = useSession();
@@ -61,24 +104,11 @@ export function TransactionsProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     setState((s) => ({ ...s, status: 'loading', error: undefined }));
-    const [tx, cats, methods, resort] = await Promise.all([
-      supabase.from('transactions').select(SELECT).order('occurred_at', { ascending: false }),
-      supabase.from('categories').select('id, kind, name').order('sort'),
-      supabase.from('payment_methods').select('id, name').order('sort'),
-      supabase.from('resort').select('name, address, tin, contact, opening_balance').maybeSingle(),
-    ]);
-    const error = tx.error ?? cats.error ?? methods.error ?? resort.error;
-    if (error) {
-      setState((s) => ({ ...s, status: 'error', error: error.message }));
-      return;
+    try {
+      setState(await fetchAll());
+    } catch (e) {
+      setState((s) => ({ ...s, status: 'error', error: (e as Error).message }));
     }
-    setState({
-      status: 'ready',
-      entries: (tx.data as unknown as Row[]).map(toEntry),
-      categories: cats.data as Category[],
-      methods: methods.data as Method[],
-      resort: resort.data && { ...resort.data, opening_balance: Number(resort.data.opening_balance) },
-    });
   }, []);
 
   // Load after sign-in; drop everything on sign-out so nothing lingers on a shared phone.
@@ -92,6 +122,8 @@ export function TransactionsProvider({ children }: { children: ReactNode }) {
     () => ({
       ...state,
       reload,
+      // Keeps the current data on screen while fetching; the caller shows any error.
+      refresh: async () => setState(await fetchAll()),
       addEntry: async (input) => {
         const { data, error } = await supabase.from('transactions').insert(toRow(input)).select(SELECT).single();
         if (error) throw new Error(error.message);

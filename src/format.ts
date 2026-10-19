@@ -13,7 +13,7 @@ export type Entry = {
   occurredAt: Date;
 };
 
-const sameDay = (a: Date, b: Date) =>
+export const sameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 export function formatWhen(date: Date, now = new Date()): string {
@@ -78,3 +78,37 @@ export function buildCsv(entries: Entry[]): string {
 // Descriptions are typed by people; escape them before they go into the PDF's HTML.
 export const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+// `day`'s calendar date at `time`'s clock time; lets a backdated entry keep a real time of day.
+export const onDay = (day: Date, time: Date) =>
+  new Date(day.getFullYear(), day.getMonth(), day.getDate(), time.getHours(), time.getMinutes(), time.getSeconds());
+
+export type DayGroup = { key: string; title: string; net: number; data: Entry[] };
+
+// Groups newest-first entries into calendar days, keeping their order.
+export function groupByDay(entries: Entry[], now = new Date()): DayGroup[] {
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const groups: DayGroup[] = [];
+  for (const e of entries) {
+    const key = isoDate(e.occurredAt);
+    let g = groups[groups.length - 1];
+    if (g?.key !== key) {
+      const d = e.occurredAt;
+      const title = sameDay(d, now)
+        ? 'Today'
+        : sameDay(d, yesterday)
+          ? 'Yesterday'
+          : d.toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              ...(d.getFullYear() !== now.getFullYear() && { year: 'numeric' }),
+            });
+      g = { key, title, net: 0, data: [] };
+      groups.push(g);
+    }
+    g.data.push(e);
+  }
+  for (const g of groups) g.net = sumAmounts(g.data.map((e) => ({ amount: e.kind === 'in' ? e.amount : -e.amount })));
+  return groups;
+}

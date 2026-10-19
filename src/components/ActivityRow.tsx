@@ -4,7 +4,7 @@ import { categoryIcon } from '../data';
 import { formatWhen, type Entry } from '../format';
 import { signed, useTheme } from '../theme';
 
-export function ActivityRow({ item, divider }: { item: Entry; divider: boolean }) {
+export function ActivityRow({ item, divider, subtitle }: { item: Entry; divider: boolean; subtitle?: string }) {
   const t = useTheme();
   const Glyph = categoryIcon(item.category);
   const value = item.kind === 'in' ? item.amount : -item.amount;
@@ -26,7 +26,7 @@ export function ActivityRow({ item, divider }: { item: Entry; divider: boolean }
         <Text style={[s.title, { color: t.text }]} numberOfLines={1}>
           {item.title}
         </Text>
-        <Text style={{ color: t.muted, fontSize: 13 }}>{formatWhen(item.occurredAt)}</Text>
+        <Text style={{ color: t.muted, fontSize: 13 }}>{subtitle ?? formatWhen(item.occurredAt)}</Text>
       </View>
       <Text style={[s.amount, { color: item.kind === 'in' ? t.accent : t.text }]}>{signed(value)}</Text>
     </Pressable>

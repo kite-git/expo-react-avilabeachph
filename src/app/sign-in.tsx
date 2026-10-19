@@ -1,5 +1,8 @@
-import { useRef, useState, type ComponentRef } from 'react';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -29,7 +32,30 @@ export default function SignIn() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  const horizon = useRef(new Animated.Value(0)).current;
+
+  // The horizon line draws in once; with Reduce Motion it just appears.
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
+      if (reduce) horizon.setValue(1);
+      else
+        Animated.timing(horizon, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.out(Easing.exp),
+          useNativeDriver: true,
+        }).start();
+    });
+  }, [horizon]);
+
   const canSubmit = !busy && !!email.trim() && !!password;
+
+  const fail = (message: string) => {
+    setError(message);
+    setBusy(false);
+    // accessibilityLiveRegion only covers Android; iOS needs an explicit announcement.
+    AccessibilityInfo.announceForAccessibility(message);
+  };
 
   const signIn = async () => {
     if (!canSubmit) return;
@@ -39,16 +65,14 @@ export default function SignIn() {
       const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       // On success the auth listener swaps in the app; only failures need handling here.
       if (authError) {
-        setError(
+        fail(
           authError.message === 'Invalid login credentials'
             ? 'Email or password is incorrect.'
             : `Couldn’t sign in. ${authError.message}`,
         );
-        setBusy(false);
       }
     } catch {
-      setError('Couldn’t reach the server. Check your connection and try again.');
-      setBusy(false);
+      fail('Couldn’t reach the server. Check your connection and try again.');
     }
   };
 
@@ -65,20 +89,24 @@ export default function SignIn() {
         <View
           style={[
             s.panel,
-            { backgroundColor: t.balanceBg, minHeight: height * 0.42, paddingTop: insets.top + 24 },
+            { backgroundColor: t.balanceBg, minHeight: Math.min(height * 0.42, 360), paddingTop: insets.top + 24 },
           ]}
         >
-          <View style={[s.tile, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
-            <SunHorizon size={28} weight="duotone" color={t.onBalanceMuted} />
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ marginBottom: 16 }}>
+            <SunHorizon size={32} weight="duotone" color={t.onBalanceMuted} />
           </View>
-          <Text style={[s.brand, { color: t.onBalance }]} accessibilityRole="header">
-            Avila Beach PH
+          <Text style={[s.brand, { color: t.onBalance }]} accessibilityRole="header" accessibilityLabel="Avila Beach PH">
+            {'Avila\nBeach PH'}
           </Text>
-          <Text style={{ color: t.onBalanceMuted, fontSize: 16, marginTop: 4 }}>Resort finances</Text>
+          <Text style={{ color: t.onBalanceMuted, fontSize: 16, marginTop: 8 }}>Resort finances</Text>
         </View>
+        <Animated.View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[s.horizon, { backgroundColor: t.onBalanceMuted, transform: [{ scaleX: horizon }] }]}
+        />
 
         <View style={s.form}>
-          <Text style={[s.heading, { color: t.text }]}>Sign in</Text>
 
           <View style={s.field}>
             <Text style={[s.label, { color: t.text }]}>Email</Text>
@@ -115,14 +143,15 @@ export default function SignIn() {
                 returnKeyType="go"
                 onSubmitEditing={signIn}
                 accessibilityLabel="Password"
-                style={{ flex: 1, height: '100%', color: t.text, fontSize: 16 }}
+                style={{ flex: 1, paddingVertical: 14, color: t.text, fontSize: 16 }}
               />
               <Pressable
                 onPress={() => setShowPassword((v) => !v)}
-                accessibilityRole="button"
-                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                accessibilityRole="switch"
+                accessibilityLabel="Show password"
+                accessibilityState={{ checked: showPassword }}
                 hitSlop={4}
-                style={s.eye}
+                style={({ pressed }) => [s.eye, pressed && { opacity: 0.6 }]}
               >
                 {showPassword ? <EyeSlash size={22} color={t.muted} /> : <Eye size={22} color={t.muted} />}
               </Pressable>
@@ -137,7 +166,7 @@ export default function SignIn() {
           <Button label={busy ? 'Signing in' : 'Sign in'} onPress={signIn} disabled={!canSubmit} style={{ marginTop: 8 }} />
 
           <Text style={{ color: t.muted, fontSize: 13, lineHeight: 19 }}>
-            This app has one account. Ask the owner if you need access.
+            Forgot your password? Reset it in the Supabase dashboard under Authentication.
           </Text>
         </View>
       </ScrollView>
@@ -146,21 +175,14 @@ export default function SignIn() {
 }
 
 const s = StyleSheet.create({
-  // Radius rule: balance card 20, inputs 14, icon tiles 12 (see theme.ts).
-  panel: {
-    justifyContent: 'flex-end',
-    paddingHorizontal: 24,
-    paddingBottom: 28,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  tile: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-  brand: { fontSize: 34, fontWeight: '700', letterSpacing: -0.9 },
-  form: { padding: 24, gap: 18 },
-  heading: { fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
+  // The sky ends in a straight horizon, so the panel has no radius; inputs keep 14 (see theme.ts).
+  panel: { justifyContent: 'flex-end', paddingHorizontal: 24, paddingBottom: 32 },
+  horizon: { height: 2, transformOrigin: 'left' },
+  brand: { fontSize: 44, lineHeight: 46, fontWeight: '700', letterSpacing: -1.5 },
+  form: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 24, gap: 18, width: '100%', maxWidth: 480, alignSelf: 'center' },
   field: { gap: 8 },
   label: { fontSize: 15, fontWeight: '600' },
-  input: { height: 52, borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, fontSize: 16 },
+  input: { minHeight: 52, borderRadius: 14, borderWidth: 1, paddingHorizontal: 16, fontSize: 16 },
   row: { flexDirection: 'row', alignItems: 'center', paddingRight: 4 },
   eye: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

@@ -1,8 +1,20 @@
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useColorScheme,
+  View,
+} from 'react-native';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { Entry, Kind } from '../format';
+import { formatWhen, onDay, sameDay, type Entry, type Kind } from '../format';
 import { parseAmount } from '../money';
 import { useTransactions } from '../store';
 import { useTheme } from '../theme';
@@ -24,6 +36,9 @@ export function EntryForm({ kind, initial }: { kind: Kind; initial?: Entry }) {
   const [title, setTitle] = useState(initial?.title ?? '');
   const [categoryId, setCategoryId] = useState(initial?.categoryId ?? categories[0]?.id);
   const [methodId, setMethodId] = useState(initial?.methodId ?? methods[0]?.id);
+  const [day, setDay] = useState(initial?.occurredAt ?? new Date());
+  const [picking, setPicking] = useState(false);
+  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const [touched, setTouched] = useState({ amount: false, title: false });
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -39,6 +54,21 @@ export function EntryForm({ kind, initial }: { kind: Kind; initial?: Entry }) {
   const amount = parseAmount(amountText);
   const amountError = touched.amount && amount === null ? 'Enter an amount above ₱0 with up to 2 decimals.' : '';
   const titleError = touched.title && !title.trim() ? 'Add a short description.' : '';
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  const otherDay = !sameDay(day, today) && !sameDay(day, yesterday);
+  const pickDay = (d: Date) => {
+    setDay(d);
+    setPicking(false);
+  };
+  const openPicker = () => {
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({ value: day, mode: 'date', maximumDate: today, onValueChange: (_, d) => pickDay(d) });
+    } else {
+      setPicking((p) => !p);
+    }
+  };
+
   const valid = amount !== null && title.trim().length > 0 && !!categoryId && !!methodId;
 
   const save = async () => {
@@ -46,7 +76,9 @@ export function EntryForm({ kind, initial }: { kind: Kind; initial?: Entry }) {
     setBusy(true);
     setSaveError('');
     try {
-      const input = { title: title.trim(), amount, categoryId, methodId };
+      // Backdated entries keep a real clock time: the original one on edit, the save time when new.
+      const occurredAt = onDay(day, initial?.occurredAt ?? new Date());
+      const input = { title: title.trim(), amount, categoryId, methodId, occurredAt };
       if (initial) await updateEntry(initial.id, input);
       else await addEntry(input);
       router.back();
@@ -105,6 +137,32 @@ export function EntryForm({ kind, initial }: { kind: Kind; initial?: Entry }) {
               />
             </View>
             {!!amountError && <Text style={[s.error, { color: t.error }]}>{amountError}</Text>}
+          </View>
+
+          <View style={s.field}>
+            <Text style={[s.label, { color: t.text }]}>Date</Text>
+            <View style={s.chips} accessibilityRole="radiogroup">
+              <Chip label="Today" selected={!picking && sameDay(day, today)} onPress={() => pickDay(today)} />
+              <Chip label="Yesterday" selected={!picking && sameDay(day, yesterday)} onPress={() => pickDay(yesterday)} />
+              <Chip
+                label={otherDay ? formatWhen(day, today) : 'Pick a date'}
+                selected={picking || otherDay}
+                onPress={openPicker}
+              />
+            </View>
+            {picking && (
+              <View style={[s.calendar, { backgroundColor: t.surface }]}>
+                <DateTimePicker
+                  value={day}
+                  mode="date"
+                  display="inline"
+                  maximumDate={today}
+                  accentColor={t.accent}
+                  themeVariant={scheme}
+                  onValueChange={(_, d) => pickDay(d)}
+                />
+              </View>
+            )}
           </View>
 
           <View style={s.field}>
@@ -174,6 +232,7 @@ const s = StyleSheet.create({
   amountInput: { paddingLeft: 38, fontSize: 22, fontWeight: '600', fontVariant: ['tabular-nums'] },
   error: { fontSize: 13 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  calendar: { borderRadius: 16, padding: 8 },
   delete: { height: 52, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   footer: { padding: 20, paddingBottom: 12, gap: 10, borderTopWidth: StyleSheet.hairlineWidth },
 });
